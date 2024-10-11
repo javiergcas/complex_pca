@@ -76,16 +76,18 @@ def load_data(input_files, file_format, mask_fp, normalize,
     del fps
     
     # Pull file paths
-    data, mask, header = load_scans(
+    data, mask, header, data_trs = load_scans(
         fps_inputs, file_format, mask_fp, normalize, bandpass, 
         low_cut, high_cut, tr, verbose
     )
 
-    return data, mask, header
+    return data, mask, header, data_trs
 
 
 def load_scans(fps, file_format, mask_fp, normalize, 
                bandpass, low_cut, high_cut, tr, verbose):
+    # scan duration in number of trs
+    scan_trs = []
     # get # of scans
     n_scans = len(fps)
     # if file_format = 'nifti', load mask
@@ -115,10 +117,13 @@ def load_scans(fps, file_format, mask_fp, normalize,
                                  tr, verbose)
         # get # observations
         data_n = data.shape[0]
+        scan_trs.append(data_n)
         # Normalize data before concatenation
         if normalize == 'zscore':
+            print(f' zscoring {fp}')
             data = zscore(data, nan_policy='omit')
         elif normalize == 'mean_center':
+            print(f' mean centering {fp}')
             data = data - np.mean(data, axis=0)
         # fill nans w/ 0 in regions of poor functional scan coverage
         data = np.nan_to_num(data)
@@ -127,7 +132,7 @@ def load_scans(fps, file_format, mask_fp, normalize,
         # increase counter by # of observations in subject scan
         indx += data_n
 
-    return group_data, mask, header
+    return group_data, mask, header, scan_trs
 
 
 def load_file(fp, file_format, mask, bandpass, 
