@@ -61,13 +61,23 @@ def load_data(input_files, file_format, mask_fp, normalize,
               bandpass, low_cut, high_cut, tr, verbose):
     # read file paths from input .txt file
     fps = read_input_file(input_files)
+
     # master function for loading and concatenating functional scans
     # parameters check
     parameter_check(fps, file_format, tr, bandpass, mask_fp)
 
+    # Separate input and ouput paths
+    if isinstance(fps[0],list):
+        fps_inputs  = [i[0] for i in fps]
+        fps_outputs = [i[1] for i in fps]
+    else:
+        fps_inputs  = fps
+        fps_outputs = None
+    del fps
+    
     # Pull file paths
     data, mask, header = load_scans(
-        fps, file_format, mask_fp, normalize, bandpass, 
+        fps_inputs, file_format, mask_fp, normalize, bandpass, 
         low_cut, high_cut, tr, verbose
     )
 
