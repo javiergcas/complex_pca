@@ -40,6 +40,7 @@ def package_parameters(n_comps, mask_fp, file_format,
     if rotate is None:
         params['rotate'] = ''
     if not bandpass:
+        print('bandpass not activated --> setting all bandpass related inputs to empty')
         params['bandpass'] = ''
         params['lowcut'] = ''
         params['highcut'] = ''
@@ -50,10 +51,13 @@ def package_parameters(n_comps, mask_fp, file_format,
 
 def pca(input_data, n_comps, verbose, n_iter=10):
     # compute pca
-    if verbose:
-        print('performing PCA/CPCA')
+    print('performing PCA/CPCA')
     # get number of observations
     n_samples = input_data.shape[0]
+    print(' number of samples = %d' % n_samples)
+    print(' input_data.shape[1] = %d' % input_data.shape[1])
+    #matrix_rank = np.linalg.matrix_rank(input_data)
+    #print(' rank of input matrix = % s' % str(matrix_rank))
     # fbpca pca
     (U, s, Va) = fbpca.pca(input_data, k=n_comps, n_iter=n_iter)
     # calc explained variance
@@ -70,14 +74,15 @@ def pca(input_data, n_comps, verbose, n_iter=10):
                    'Va': Va,
                    'loadings': loadings.T,
                    'exp_var': explained_variance_,
-                   'pc_scores': pc_scores
-                   }   
+                   'pc_scores': pc_scores,
+                   'n_samples': n_samples,
+                   'n_positions': input_data.shape[1],
+                   'total_var': total_var}
     return output_dict
 
 
 def rotation(pca_output, data, rotation, verbose):
-    if verbose:
-        print(f'applying {rotation} to PCA/CPCA loadings')
+    print(f'applying {rotation} to PCA/CPCA loadings')
     # rotate PCA weights, if specified, and recompute pc scores
     if rotation == 'varimax':
         rotated_weights, r_mat = varimax(pca_output['loadings'].T)
@@ -140,6 +145,9 @@ def write_results(pca_output, pca_type, mask, file_format,
 def run_cpca(input_files, n_comps, mask_fp, file_format, out_prefix, 
              pca_type, rotate, recon, normalize, bandpass, 
              low_cut, high_cut, tr, n_bins, verbose):
+    print('++ Entering Run cpca...')
+    print(' + bandpass = %s' % str(bandpass))
+    print(' + verbose  = %s' % str(verbose))  
     # load dataset
     func_data, mask, header = load_data(
         input_files, file_format, mask_fp, normalize, 
@@ -147,6 +155,7 @@ def run_cpca(input_files, n_comps, mask_fp, file_format, out_prefix,
     ) 
     # if pca_type is complex, compute hilbert transform
     if pca_type == 'complex':
+        print(' + Applying Hilbert Transform ...')
         func_data = hilbert_transform(func_data, verbose)
 
     # compute pca
@@ -154,6 +163,7 @@ def run_cpca(input_files, n_comps, mask_fp, file_format, out_prefix,
 
     # rotate pca weights, if specified
     if rotate is not None:
+        print(' + Applying rotation ...')
         pca_output = rotation(pca_output, func_data, rotate, verbose)
 
     # if cpca, and recon=True, create reconstructed time courses of complex PC
