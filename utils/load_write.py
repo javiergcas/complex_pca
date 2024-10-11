@@ -189,8 +189,10 @@ def read_input_file(input_files):
         fps = [line.rstrip() for line in file]
         # remove extra lines, if any
         fps = [line for line in fps if len(line)>0]
+    # Only separate into input output if there is more than one entry per line
+    if '\t' in fps[0]:
+        fps = [item.split('\t') for item in fps]
     return fps
-
 
 def write_out(data, mask, header, file_format, out_prefix):
     # write out brain maps to nifti or cifti
