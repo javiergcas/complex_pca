@@ -22,18 +22,23 @@ def create_dynamic_phase_maps(recon_ts, bin_indx, n_bins):
 
 
 def reconstruct_ts(pca_res, n, rotation, real=True):
+    print('++ Entering reconstruct_ts..........................................')
     # reconstruct ts 
     if rotation:
         recon_ts = pca_res['pc_scores'][:, n] @ pca_res['loadings'][n, :].conj()
     else:
         U = pca_res['U'][:,n]
+        print(U.shape)
         s = np.atleast_2d(pca_res['s'][n])
+        print(s.shape)
         Va = pca_res['Va'][n,:].conj()
+        print(Va.shape)
         recon_ts = U @ s @ Va
     if real:
         recon_ts = np.real(recon_ts)
     else:
         recon_ts = np.imag(recon_ts)
+    print('++ Exiting reconstruct_ts...........................................')
     return recon_ts
 
 
@@ -44,7 +49,7 @@ def write_results(phase_ts, rotation, n, mask, header,
     if out_prefix is None:
         out_prefix = f'cpca'
         if rotation is not None:
-            out_prefix += f'_{rotation}'
+            out_prefix += f'_{rotate}'
     out_prefix += f'_recon_n{n+1}'
     if file_format in ('cifti', 'nifti'):
         write_out(phase_ts, mask, header, file_format, out_prefix)
@@ -75,7 +80,7 @@ def cpca_recon(cpca_res, rotation, file_format, mask, header,
     if out_prefix is None:
         out_prefix = f'cpca'
         if rotation is not None:
-            out_prefix += f'_{rotation}'
+            out_prefix += f'_{rotate}'
     out_prefix += f'_recon_metadata'
     metadata = {
         'phase_bin_index': bin_indx_all,
