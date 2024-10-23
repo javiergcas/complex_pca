@@ -89,9 +89,9 @@ def pca(input_data, n_comps, pca_type, verbose, n_iter=10):
     #    a) We are working with complex data --> we count the number of vertices twice
     #    b) Input were normalized timseries --> each vertex/voxel has a variance = 1
     if pca_type == 'complex':
-       explained_variance_ = np.array([eig/(n_vertices*2) for eig in eigs])
+       explained_variance_ = 100*np.array([eig/(n_vertices*2) for eig in eigs])
     if pca_type == 'real':
-       explained_variance_ = np.array([eig/(n_vertices) for eig in eigs])
+       explained_variance_ = 100*np.array([eig/(n_vertices) for eig in eigs])
     # Original Formulation
     # explained_variance_ = ((s ** 2) / (n_samples - 1)) / input_data.shape[1]
     total_var = explained_variance_.sum()
@@ -196,7 +196,7 @@ def write_results(pca_output, pca_type, mask, file_format,
 
 def run_cpca(input_files, n_comps, mask_fp, file_format, out_prefix, 
              pca_type, rotate, recon, normalize, bandpass, 
-             low_cut, high_cut, tr, n_bins, verbose,recon_data,n_comps_to_remove, n_comps_to_recon,save_pca_out):
+             low_cut, high_cut, tr, n_bins, verbose,recon_data,n_comps_to_remove, n_comps_to_recon,save_pca_out, calc_rank):
     print('++ Entering Run cpca...')
     print(' + number of components to recon   = %s' % str(n_comps_to_recon))
     print(' + number of components to compute = %s' % str(n_comps))
@@ -205,6 +205,7 @@ def run_cpca(input_files, n_comps, mask_fp, file_format, out_prefix,
     print(' + recon components separately? %s' % str(recon))
     print(' + bandpass = %s' % str(bandpass))
     print(' + verbose  = %s' % str(verbose))  
+    print(' + calculate rank of data = %s' % str(calc_rank))
     # load dataset
     print("++ Loading data into memory.....")
     func_data, mask, header, func_data_trs, input_paths, out_asis_paths, out_removed_paths = load_data(
@@ -215,11 +216,20 @@ def run_cpca(input_files, n_comps, mask_fp, file_format, out_prefix,
     if pca_type == 'complex':
         print(' + Applying Hilbert Transform ...')
         func_data = hilbert_transform(func_data, verbose)
-
+    # if requested, calculate the rank of the data
+    if calc_rank == True:
+        func_data_rank = np.linalg.matrix_rank(func_data)
+        print('f + Input data rank = %d' % func_data_rank)
+    
     # if n_comps not provided, set it to maximum possible
     if n_comps is None:
-        n_comps = np.min(func_data.shape)
-        print(f' + Automatically setting n_comps = {n_comps}')
+        if calc_rank == True:
+            n_comps = func_data_rank
+            print(f' + Automatically setting n_comps = rank ==> n_comps = {n_comps}')
+        else:
+            n_comps = np.min(func_data.shape)
+            print(f' + Automatically setting n_comps = min(func_data.shape) ==> n_comps = {n_comps}')
+    
     # compute pca
     pca_output = pca(func_data, n_comps, pca_type, verbose)
 
@@ -365,6 +375,10 @@ if __name__ == '__main__':
                         'a butterworth filter',
                         action='store_true',
                         required=False)
+    parser.add_argument('-calc_rank', '--calc_rank',
+                        help='Whether to estimate the rank of the input data',
+                        action='store_true',
+                        required=False)
     parser.add_argument('-f_low', '--bandpass_filter_low',
                         help='Low cut frequency for bandpass filter in Hz',
                         required=False,
@@ -405,4 +419,4 @@ if __name__ == '__main__':
             args_dict['bandpass_filter'], args_dict['bandpass_filter_low'],
             args_dict['bandpass_filter_high'], args_dict['sampling_unit'],
             args_dict['n_recon_bins'], args_dict['verbose_off'],args_dict['recon_data'],args_dict['n_comps_to_remove'],
-            args_dict['n_comps_to_recon'],args_dict['save_pca_out'])
+            args_dict['n_comps_to_recon'],args_dict['save_pca_out'],args_dict['calc_rank'])
