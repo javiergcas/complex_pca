@@ -7,7 +7,7 @@ from nibabel.filebasedimages import ImageFileError
 from scipy.io import loadmat 
 from scipy.stats import zscore
 from scipy.signal import butter, sosfiltfilt
-
+import os.path as osp
 
 def butter_bandpass(lowcut, highcut, fs, order=5):
     # create butterworth bandpass filter based on lowcut and highcut
@@ -59,29 +59,48 @@ def initialize_matrix(fps, nscans, file_format, mask, verbose):
 
 def load_data(input_files, file_format, mask_fp, normalize, 
               bandpass, low_cut, high_cut, tr, verbose):
+    """This function loads resting-state data and concatenates it in time.
+    
+    Inputs
+    ======
+
+    Outputs
+    =======
+    data: concatenated data
+    mask: mask
+    header: header
+    data_trs: number of acquisitions per scan
+    input_paths: path to input files
+    out_asis_paths: path to output files (all components)
+    out_removed_paths: path to output files (after removal of components)
+    """
     # read file paths from input .txt file
     fps = read_input_file(input_files)
-
-    # master function for loading and concatenating functional scans
-    # parameters check
-    parameter_check(fps, file_format, tr, bandpass, mask_fp)
-
+    input_paths, out_asis_paths, out_removed_paths = None, None, None
     # Separate input and ouput paths
     if isinstance(fps[0],list):
-        fps_inputs  = [i[0] for i in fps]
-        fps_outputs = [i[1] for i in fps]
+        print(' + [load_data]: both input and output paths were provided')
+        if len(fps[0]) != 3:
+            print(' ++ ERROR: Not enought entries per line in input file.')
+            exit(1) 
+        input_paths    = [i[0] for i in fps]
+        out_asis_paths = [i[1] for i in fps]
+        out_removed_paths = [i[2] for i in fps]
     else:
-        fps_inputs  = fps
-        fps_outputs = None
+        input_paths  = fps
     del fps
+    
+    # master function for loading and concatenating functional scans
+    # parameters check
+    parameter_check(input_paths, file_format, tr, bandpass, mask_fp)
     
     # Pull file paths
     data, mask, header, data_trs = load_scans(
-        fps_inputs, file_format, mask_fp, normalize, bandpass, 
+        input_paths, file_format, mask_fp, normalize, bandpass, 
         low_cut, high_cut, tr, verbose
     )
 
-    return data, mask, header, data_trs
+    return data, mask, header, data_trs, input_paths, out_asis_paths, out_removed_paths
 
 
 def load_scans(fps, file_format, mask_fp, normalize, 
@@ -205,8 +224,13 @@ def read_input_file(input_files):
         # remove extra lines, if any
         fps = [line for line in fps if len(line)>0]
     # Only separate into input output if there is more than one entry per line
+    print(' + [read_input_file]: Number of entries in input file: %d lines' % (len(fps)))
     if '\t' in fps[0]:
         fps = [item.split('\t') for item in fps]
+        print(' + [read_input_file]: Number of paths per input: %d paths' % (len(fps[0])))
+    elif ' ' in fps[0]:
+        fps = [item.split(' ') for item in fps]
+        print(' + [read_input_file]: Number of paths per input: %d paths' % (len(fps[0])))
     return fps
 
 def write_out(data, mask, header, file_format, out_prefix):
@@ -219,7 +243,9 @@ def write_out(data, mask, header, file_format, out_prefix):
         nifti_4d[mask_bin, :] = data.T
         # write out brain w/ nibabel and mask affine
         nifti_out = nb.Nifti2Image(nifti_4d, mask.affine)
-        nb.save(nifti_out, f'{out_prefix}.nii')
+        if (not out_prefix.endswith('.nii')) & (not out_prefix.endswith('.nii.gz')):
+            out_prefix = out_prefix + '.nii'
+        nb.save(nifti_out, out_prefix)
     elif file_format == 'cifti':
         # https://neurostars.org/t/alter-size-of-matrix-for-new-cifti-header-nibabel/20903/2
         # first get tr from Series axis
@@ -233,4 +259,29 @@ def write_out(data, mask, header, file_format, out_prefix):
         # need to create a new header due to change in matrix shape
         nb.save(cifti_out, f'{out_prefix}.dtseries.nii')
 
-
+def write_modified_scans(data,mask,header,file_format,data_trs,file_paths, verbose):
+    ## # extracting output paths
+    ## fps = read_input_file(file_paths)
+    ## # Separate input and ouput paths
+    ## if isinstance(fps[0],list):
+    ##     fps_inputs  = [i[0] for i in fps]
+    ##     fps_outputs = [i[1] for i in fps]
+    ## else:
+    ##     fps_inputs  = fps
+    ##     fps_outputs = None
+    ## del fps
+    
+    # initlializing tr index
+    indx = 0
+    n_files_to_write = len(file_paths)
+    for i,out_path in enumerate(file_paths):
+        ii         = i + 1
+        out_data   = data[indx:(indx+data_trs[i]),:]
+        if verbose:
+            print(f'[{ii}/{n_files_to_write}] writing modified data {out_path}')
+        out_dir = osp.dirname(out_path)
+        if not osp.exists(out_dir):
+            print(f'[{ii}/{n_files_to_write}] --> Creating output folder first: {out_dir}')
+            os.makedirs(out_dir)
+        write_out(out_data,mask,header,file_format,out_path)        
+        indx += data_trs[i]
