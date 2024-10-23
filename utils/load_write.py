@@ -129,7 +129,7 @@ def load_scans(fps, file_format, mask_fp, normalize,
     # initialize counter
     indx=0
     # Loop through files and concatenate/append
-    for fp in fps:
+    for n,fp in enumerate(fps):
         # load file
         data, header = load_file(fp, file_format, mask_bin, 
                                  bandpass, low_cut, high_cut,
@@ -139,7 +139,7 @@ def load_scans(fps, file_format, mask_fp, normalize,
         scan_trs.append(data_n)
         # Normalize data before concatenation
         if normalize == 'zscore':
-            print(f' zscoring {fp}')
+            print(f' [{n}/{n_scans}] zscoring {fp}')
             data = zscore(data, nan_policy='omit')
         elif normalize == 'mean_center':
             print(f' mean centering {fp}')
