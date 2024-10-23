@@ -58,11 +58,11 @@ def write_results(phase_ts, rotation, n, mask, header,
 
 
 def cpca_recon(cpca_res, rotation, file_format, mask, header, 
-                out_prefix, n_bins):
+                out_prefix, n_bins, n_comps_to_recon):
     # reconstruct cpca component 'movies' from cpca results
     bin_indx_all = []
     bin_centers_all = []
-    n_comps = cpca_res['pc_scores'].shape[1]
+    n_comps = n_comps_to_recon #cpca_res['pc_scores'].shape[1]
     for n in range(n_comps):
         recon_ts = reconstruct_ts(cpca_res, [n], rotation)
         phase_ts = np.angle(cpca_res['pc_scores'][:,n])
