@@ -1,20 +1,40 @@
 import argparse
 import numpy as np
+import pandas as pd
 import fbpca
 import warnings
-
+import h5py
 from numpy.linalg import pinv
 from scipy.io import savemat
 from scipy.signal import hilbert
 from scipy.stats import zscore
 from utils.cpca_reconstruction import cpca_recon
-from utils.load_write import load_data, write_out
+from utils.load_write import load_data, write_out, write_modified_scans
 from xmca.tools.rotation import varimax, promax
 
 
+# def save_dict_to_hdf5(filename, data_dict):
+#     with h5py.File(filename, 'w') as h5file:
+#         for key, value in data_dict.items():
+#             h5file.create_dataset(key, data=value)
+
+def save_dict_to_hdf5(filename, data_dict):
+    with h5py.File(filename, 'w') as h5file:
+        for key, value in data_dict.items():
+            if isinstance(value, np.ndarray):
+                # Check if the array contains objects
+                if value.dtype == np.dtype('O'):
+                    # Try to convert the object array to a numeric array if possible
+                    try:
+                        value = np.array(value, dtype=np.float64)
+                    except ValueError:
+                        print(f"Skipping key {key} - cannot convert to numeric.")
+                        continue
+                h5file.create_dataset(key, data=value)
+            else:
+                print(f"Skipping key {key} - not a numpy array.")
+
 def hilbert_transform(input_data, verbose):
-    if verbose:
-        print('applying hilbert transform')
     # hilbert transform
     input_data = hilbert(input_data, axis=0)
     return input_data.conj()
@@ -49,31 +69,46 @@ def package_parameters(n_comps, mask_fp, file_format,
     return params
 
 
-def pca(input_data, n_comps, verbose, n_iter=10):
+def pca(input_data, n_comps, pca_type, verbose, n_iter=10):
     # compute pca
     print('performing PCA/CPCA')
     # get number of observations
-    n_samples = input_data.shape[0]
-    print(' number of samples = %d' % n_samples)
-    print(' input_data.shape[1] = %d' % input_data.shape[1])
+    n_samples  = input_data.shape[0]
+    n_vertices = input_data.shape[1] 
+    print(' number of samples         = %d' % n_samples)
+    print(' number of vertices/voxels = %d' % n_vertices)
     #matrix_rank = np.linalg.matrix_rank(input_data)
     #print(' rank of input matrix = % s' % str(matrix_rank))
     # fbpca pca
     (U, s, Va) = fbpca.pca(input_data, k=n_comps, n_iter=n_iter)
     # calc explained variance
-    explained_variance_ = ((s ** 2) / (n_samples - 1)) / input_data.shape[1]
+    # 1. Get eigs
+    eigs = (s ** 2) / (n_samples-1)
+    # 2. Compute Variance Explained from eigenvaluesa
+    #    Assumptions:
+    #    a) We are working with complex data --> we count the number of vertices twice
+    #    b) Input were normalized timseries --> each vertex/voxel has a variance = 1
+    if pca_type == 'complex':
+       explained_variance_ = np.array([eig/(n_vertices*2) for eig in eigs])
+    if pca_type == 'real':
+       explained_variance_ = np.array([eig/(n_vertices) for eig in eigs])
+    # Original Formulation
+    # explained_variance_ = ((s ** 2) / (n_samples - 1)) / input_data.shape[1]
     total_var = explained_variance_.sum()
-    # compute PC scores
+    
+    # 3. Compute PC scores
     pc_scores = input_data @ Va.T
     # get loadings from eigenvectors
     loadings =  Va.T @ np.diag(s) 
     loadings /= np.sqrt(input_data.shape[0]-1)
-    # package outputs
+    
+    # 4. Package outputs
     output_dict = {'U': U,
                    's': s,
                    'Va': Va,
                    'loadings': loadings.T,
                    'exp_var': explained_variance_,
+                   'eigs': eigs,
                    'pc_scores': pc_scores,
                    'n_samples': n_samples,
                    'n_positions': input_data.shape[1],
@@ -100,7 +135,7 @@ def rotation(pca_output, data, rotation, verbose):
 
 
 def write_results(pca_output, pca_type, mask, file_format,
-                  header, rotate, out_prefix):
+                  header, rotate, out_prefix, n_comps_to_save):
     # write out results of pca analysis
     # create output name if out_prefix is None
     if out_prefix is None:
@@ -112,8 +147,23 @@ def write_results(pca_output, pca_type, mask, file_format,
             out_prefix += f'_{rotate}'
         out_prefix += '_results'
 
+    # Write variance explained
+    out_df = None
+    if 's_modified' in pca_output: 
+       out_df = pd.DataFrame(np.vstack([pca_output['s'], pca_output['eigs'], pca_output['exp_var'], pca_output['s_modified']]).T,columns=['s','eigs','exp_var','s_modified'])
+    else:
+       out_df = pd.DataFrame(np.vstack([pca_output['s'], pca_output['eigs'], pca_output['exp_var']]).T,columns=['s','eigs','exp_var'])
+    out_df.index.name = 'cpca_id'
+    out_df_path = f'{out_prefix}_exp_var.txt'
+    out_df.to_csv(out_df_path)
+    print(" + [write_results]: Explained Variance Dataframe written to disk [%s]" % out_df_path)
+
     # get loadings
-    loadings = pca_output['loadings']
+    loadings = pca_output['loadings'][0:n_comps_to_save:]
+    print('=====================')
+    print(loadings.shape)
+    print(type(pca_output))
+    print('=====================')
     # Write brain maps
     if file_format in ('nifti', 'cifti'):
         if pca_type == 'complex': 
@@ -139,17 +189,25 @@ def write_results(pca_output, pca_type, mask, file_format,
               loadings, mask, header, file_format, out_prefix
             )
     # write out pca results dictionary to .mat file
-    savemat(f'{out_prefix}.mat', pca_output)
-
+    print(" + Starting to save pca_output as h5 object",end=' ')
+    save_dict_to_hdf5(f'{out_prefix}.h5', pca_output)
+    #savemat(f'{out_prefix}.mat', pca_output)
+    print("[DONE]")
 
 def run_cpca(input_files, n_comps, mask_fp, file_format, out_prefix, 
              pca_type, rotate, recon, normalize, bandpass, 
-             low_cut, high_cut, tr, n_bins, verbose):
+             low_cut, high_cut, tr, n_bins, verbose,recon_data,n_comps_to_remove, n_comps_to_recon,save_pca_out):
     print('++ Entering Run cpca...')
+    print(' + number of components to recon   = %s' % str(n_comps_to_recon))
+    print(' + number of components to compute = %s' % str(n_comps))
+    print(' + number of components to remove  = %s' % str(n_comps_to_remove))
+    print(' + recon data after component removal? %s' % str(recon_data))
+    print(' + recon components separately? %s' % str(recon))
     print(' + bandpass = %s' % str(bandpass))
     print(' + verbose  = %s' % str(verbose))  
     # load dataset
-    func_data, mask, header = load_data(
+    print("++ Loading data into memory.....")
+    func_data, mask, header, func_data_trs, input_paths, out_asis_paths, out_removed_paths = load_data(
         input_files, file_format, mask_fp, normalize, 
         bandpass, low_cut, high_cut, tr, verbose
     ) 
@@ -158,19 +216,50 @@ def run_cpca(input_files, n_comps, mask_fp, file_format, out_prefix,
         print(' + Applying Hilbert Transform ...')
         func_data = hilbert_transform(func_data, verbose)
 
+    # if n_comps not provided, set it to maximum possible
+    if n_comps is None:
+        n_comps = np.min(func_data.shape)
+        print(f' + Automatically setting n_comps = {n_comps}')
     # compute pca
-    pca_output = pca(func_data, n_comps, verbose)
+    pca_output = pca(func_data, n_comps, pca_type, verbose)
 
     # rotate pca weights, if specified
     if rotate is not None:
         print(' + Applying rotation ...')
         pca_output = rotation(pca_output, func_data, rotate, verbose)
 
+    # free memory
+    print(' + Freeing memory by deleting the func_data variable')
+    del func_data
+
+    # if cpca, and recon_data = True, create reconstructed data after removal of complex PC components
+    # ================================================================================================
+    if recon_data & (pca_type == 'complex') & (n_comps_to_remove is not None):
+        if verbose:
+            print(f'performing data reconstruction after removal of {n_comps_to_remove} components')
+        # Nulling the first n_comps_to_remove components
+        pca_output['s_modified'] = pca_output['s'].copy()
+        pca_output['s_modified'][:n_comps_to_remove] = 0
+        # Reconstructing the data (in analytical form)
+        func_data_modified = np.dot(pca_output['U'] * pca_output['s_modified'], pca_output['Va'])
+        func_data_allcomps = np.dot(pca_output['U'] * pca_output['s'], pca_output['Va'])
+        # Extracting the real part of the reconstructed data
+        func_data_modified = np.real(func_data_modified)
+        func_data_allcomps = np.real(func_data_allcomps)
+        # Write reconstructed data to disk
+        write_modified_scans(func_data_modified,mask,header,file_format,func_data_trs, out_removed_paths, verbose)
+        write_modified_scans(func_data_allcomps,mask,header,file_format,func_data_trs, out_asis_paths, verbose)
+        # free memory
+        print(' + Freeing memory by deleting the func_data_modified variable')
+        del func_data_modified
+        del func_data_allcomps
+    
     # if cpca, and recon=True, create reconstructed time courses of complex PC
+    # ========================================================================
     if recon & (pca_type == 'complex'):
         if verbose:
             print('performing CPCA component time series reconstruction')
-        if n_comps > 10:
+        if n_comps_to_recon > 10:
             warnings.warn(
               'the # of components estimated is large, CPCA reconstruction '
               'will create a separate file for each component. This may take '
@@ -178,7 +267,7 @@ def run_cpca(input_files, n_comps, mask_fp, file_format, out_prefix,
           )
         del func_data # free up memory
         cpca_recon(pca_output, rotate, file_format,
-                   mask, header, out_prefix, n_bins)
+                   mask, header, out_prefix, n_bins, n_comps_to_recon)
     elif recon & (pca_type == 'real'):
         warnings.warn('Time series reconstruction only available for CPCA')
 
@@ -190,8 +279,10 @@ def run_cpca(input_files, n_comps, mask_fp, file_format, out_prefix,
     # write out results
     if verbose:
         print('writing out results')
-    write_results(pca_output, pca_type, mask, file_format, 
-                  header, rotate, out_prefix)
+    if save_pca_out:
+        print(' writing pca_output dictorionary to disk')
+        write_results(pca_output, pca_type, mask, file_format, 
+                  header, rotate, out_prefix, n_comps_to_recon)
 
 
 if __name__ == '__main__':
@@ -206,7 +297,18 @@ if __name__ == '__main__':
                         type=str)
     parser.add_argument('-n', '--n_comps',
                         help='<Required> Number of components from PCA',
-                        required=True,
+                        required=False,
+                        default=None,
+                        type=int)
+    parser.add_argument('-n_comps_to_recon', '--n_comps_to_recon',
+                        help='<Required> Number of components from PCA to reconstruct (one at a time)',
+                        required=False,
+                        default=None,
+                        type=int)
+    parser.add_argument('-rn', '--n_comps_to_remove',
+                        help='<Required> Number of components to remove when reconstructing the data',
+                        required=False,
+                        default=None,
                         type=int)
     parser.add_argument('-m', '--mask',
                         help='path to brain mask in nifti format. Only needed '
@@ -241,6 +343,14 @@ if __name__ == '__main__':
     parser.add_argument('-recon', '--recon',
                         help='Whether to reconstruct time courses from '
                         'complex PCA',
+                        action='store_true',
+                        required=False)
+    parser.add_argument('-recon_data', '--recon_data',
+                        help='Whether to reconstruct the data after removal of compoments',
+                        action='store_true',
+                        required=False)
+    parser.add_argument('-save_pca_out', '--save_pca_out',
+                        help='Save the PCA dictionary',
                         action='store_true',
                         required=False)
     parser.add_argument('-norm', '--normalize',
@@ -285,6 +395,7 @@ if __name__ == '__main__':
                         help='turn off printing',
                         action='store_false',
                         required=False)
+    
 
     args_dict = vars(parser.parse_args())
     run_cpca(args_dict['input'], args_dict['n_comps'], args_dict['mask'],
@@ -293,4 +404,5 @@ if __name__ == '__main__':
             args_dict['recon'], args_dict['normalize'], 
             args_dict['bandpass_filter'], args_dict['bandpass_filter_low'],
             args_dict['bandpass_filter_high'], args_dict['sampling_unit'],
-            args_dict['n_recon_bins'], args_dict['verbose_off'])
+            args_dict['n_recon_bins'], args_dict['verbose_off'],args_dict['recon_data'],args_dict['n_comps_to_remove'],
+            args_dict['n_comps_to_recon'],args_dict['save_pca_out'])
