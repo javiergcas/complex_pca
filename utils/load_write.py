@@ -51,7 +51,7 @@ def initialize_matrix(fps, nscans, file_format, mask, verbose):
         elif file_format == 'txt':
             n_t += sum(1 for _ in open(fp))
     if verbose:
-        print(f'initializing matrix of size ({n_t}, {n_ts})')
+        print(f' +    [initialize_matrix]:initializing matrix of size ({n_t}, {n_ts})')
     # initialize matrix with zeros
     matrix_init = np.zeros((n_t, n_ts))
     return matrix_init
@@ -120,7 +120,7 @@ def load_scans(fps, file_format, mask_fp, normalize,
     # initialize group matrix with zeros
     group_data = initialize_matrix(fps, n_scans, file_format, 
                                    mask_bin, verbose) 
-    print(f'loading and concatenating {n_scans} scans')
+    print(f' +    [load_scans]: loading and concatenating {n_scans} scans')
     if bandpass and verbose:
         print(
           f'bandpass filtering of signals between {low_cut} - {high_cut} Hz '
@@ -130,6 +130,7 @@ def load_scans(fps, file_format, mask_fp, normalize,
     indx=0
     # Loop through files and concatenate/append
     for n,fp in enumerate(fps):
+        nn = n + 1 # For the output 
         # load file
         data, header = load_file(fp, file_format, mask_bin, 
                                  bandpass, low_cut, high_cut,
@@ -139,7 +140,7 @@ def load_scans(fps, file_format, mask_fp, normalize,
         scan_trs.append(data_n)
         # Normalize data before concatenation
         if normalize == 'zscore':
-            print(f' [{n}/{n_scans}] zscoring {fp}')
+            print(f' [{nn}/{n_scans}] zscoring {fp}')
             data = zscore(data, nan_policy='omit')
         elif normalize == 'mean_center':
             print(f' mean centering {fp}')
@@ -224,13 +225,13 @@ def read_input_file(input_files):
         # remove extra lines, if any
         fps = [line for line in fps if len(line)>0]
     # Only separate into input output if there is more than one entry per line
-    print(' + [read_input_file]: Number of entries in input file: %d lines' % (len(fps)))
+    print(' +    [read_input_file]: Number of entries in input file: %d lines' % (len(fps)))
     if '\t' in fps[0]:
         fps = [item.split('\t') for item in fps]
-        print(' + [read_input_file]: Number of paths per input: %d paths' % (len(fps[0])))
+        print(' +    [read_input_file]: Number of paths per input: %d paths' % (len(fps[0])))
     elif ' ' in fps[0]:
         fps = [item.split(' ') for item in fps]
-        print(' + [read_input_file]: Number of paths per input: %d paths' % (len(fps[0])))
+        print(' +    [read_input_file]: Number of paths per input: %d paths' % (len(fps[0])))
     return fps
 
 def write_out(data, mask, header, file_format, out_prefix):

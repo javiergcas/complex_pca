@@ -4,14 +4,14 @@ import pandas as pd
 import fbpca
 import warnings
 import h5py
+import os #CW added
 from numpy.linalg import pinv
 from scipy.io import savemat
 from scipy.signal import hilbert
-from scipy.stats import zscore
+from scipy.stats import zscore, tvar
 from utils.cpca_reconstruction import cpca_recon
 from utils.load_write import load_data, write_out, write_modified_scans
 from xmca.tools.rotation import varimax, promax
-
 
 # def save_dict_to_hdf5(filename, data_dict):
 #     with h5py.File(filename, 'w') as h5file:
@@ -69,32 +69,35 @@ def package_parameters(n_comps, mask_fp, file_format,
     return params
 
 
-def pca(input_data, n_comps, pca_type, verbose, n_iter=10):
+def pca(input_data,total_var_in_func_data, n_comps, pca_type, verbose, n_iter=2):
     # compute pca
-    print('performing PCA/CPCA')
+    print(' + [pca]: Entereing the PCA function --> performing PCA/CPCA')
     # get number of observations
     n_samples  = input_data.shape[0]
     n_vertices = input_data.shape[1] 
-    print(' number of samples         = %d' % n_samples)
-    print(' number of vertices/voxels = %d' % n_vertices)
-    #matrix_rank = np.linalg.matrix_rank(input_data)
-    #print(' rank of input matrix = % s' % str(matrix_rank))
+    print(' + [pca] INFO: number of samples              = %d' % n_samples)
+    print(' + [pca] INFO: number of vertices/voxels      = %d' % n_vertices)
+    print(' + [pca] INFO: Total variance in the data     = %.f' % total_var_in_func_data)
     # fbpca pca
     (U, s, Va) = fbpca.pca(input_data, k=n_comps, n_iter=n_iter)
     # calc explained variance
     # 1. Get eigs
     eigs = (s ** 2) / (n_samples-1)
-    # 2. Compute Variance Explained from eigenvaluesa
+    # 2. Compute Variance Explained from eigenvalues
+    explained_variance_ = 100*np.array([eig/total_var_in_func_data for eig in eigs])
+    total_var           = explained_variance_.sum()
+    print(' + [pca] INFO: Total variance explained in PCA = %s %%' % str(total_var))
+
+    # OLDER CODE THAT IS INNACURATE WHEN YOU HAVE VOXELS WITH FLAT TIMESERIES
     #    Assumptions:
     #    a) We are working with complex data --> we count the number of vertices twice
     #    b) Input were normalized timseries --> each vertex/voxel has a variance = 1
-    if pca_type == 'complex':
-       explained_variance_ = 100*np.array([eig/(n_vertices*2) for eig in eigs])
-    if pca_type == 'real':
-       explained_variance_ = 100*np.array([eig/(n_vertices) for eig in eigs])
+    #if pca_type == 'complex':
+    #   explained_variance_ = 100*np.array([eig/(n_vertices*2) for eig in eigs])
+    #if pca_type == 'real':
+    #   explained_variance_ = 100*np.array([eig/(n_vertices) for eig in eigs])
     # Original Formulation
     # explained_variance_ = ((s ** 2) / (n_samples - 1)) / input_data.shape[1]
-    total_var = explained_variance_.sum()
     
     # 3. Compute PC scores
     pc_scores = input_data @ Va.T
@@ -197,56 +200,78 @@ def write_results(pca_output, pca_type, mask, file_format,
 def run_cpca(input_files, n_comps, mask_fp, file_format, out_prefix, 
              pca_type, rotate, recon, normalize, bandpass, 
              low_cut, high_cut, tr, n_bins, verbose,recon_data,n_comps_to_remove, n_comps_to_recon,save_pca_out, calc_rank):
-    print('++ Entering Run cpca...')
-    print(' + number of components to recon   = %s' % str(n_comps_to_recon))
-    print(' + number of components to compute = %s' % str(n_comps))
-    print(' + number of components to remove  = %s' % str(n_comps_to_remove))
-    print(' + recon data after component removal? %s' % str(recon_data))
-    print(' + recon components separately? %s' % str(recon))
-    print(' + bandpass = %s' % str(bandpass))
-    print(' + verbose  = %s' % str(verbose))  
-    print(' + calculate rank of data = %s' % str(calc_rank))
+    print('++ [run_cpca]: Entering Run cpca...')
+    print(' +             number of components to recon   = %s' % str(n_comps_to_recon))
+    print(' +             number of components to compute = %s' % str(n_comps))
+    print(' +             number of components to remove  = %s' % str(n_comps_to_remove))
+    print(' +             recon data after component removal? %s' % str(recon_data))
+    print(' +             recon components separately? %s' % str(recon))
+    print(' +             bandpass = %s' % str(bandpass))
+    print(' +             verbose  = %s' % str(verbose))  
+    print(' +             calculate rank of data = %s' % str(calc_rank))
     # load dataset
-    print("++ Loading data into memory.....")
+    print(" + [run_cpca]: Loading data into memory.....")
     func_data, mask, header, func_data_trs, input_paths, out_asis_paths, out_removed_paths = load_data(
         input_files, file_format, mask_fp, normalize, 
         bandpass, low_cut, high_cut, tr, verbose
     ) 
+ 
     # if pca_type is complex, compute hilbert transform
     if pca_type == 'complex':
-        print(' + Applying Hilbert Transform ...')
+        print(' + [run_cpca]: Applying Hilbert Transform ...')
         func_data = hilbert_transform(func_data, verbose)
+    
+    # CW: save hilbert transformed data to confirm same with new environment
+    #func_dict = {}
+    #func_dict['func_data'] = func_data
+    #save_dict_to_hdf5(f'{out_prefix}_func_data.h5',func_dict)
+
+    # Estimate and write total variance in the input data (once concatenated and hilbert)
+    #var_in_func_data = func_data.var(axis=0)
+    print(' + [run_cpca]: finished Hilbert Transform')
+    #var_in_func_data = tvar(func_data, axis=0, ddof=0) # CW added
+    var_in_func_data = np.nanvar(func_data, axis=0) # CW added
+    print(' + [run_cpca]: calculated variance')
+    total_var_in_func_data = var_in_func_data.sum()
+    print(' + [run_cpca]: summed variance')
+    total_var_in_func_data_df =  pd.DataFrame(var_in_func_data,columns=['Voxelwise Variance'])
+    total_var_in_func_data_df.index.name = 'voxel_ID'
+    
+    total_var_in_func_data_df_path = f'{out_prefix}_{pca_type}_total_var_in_func_data.txt'
+    total_var_in_func_data_df.to_csv(total_var_in_func_data_df_path)
+    print(" + [run_cpca]: Wrote variance of original data in [%s]" % total_var_in_func_data_df_path)
+
     # if requested, calculate the rank of the data
     if calc_rank == True:
         func_data_rank = np.linalg.matrix_rank(func_data)
-        print('f + Input data rank = %d' % func_data_rank)
+        print(' + [run_cpca]: Input data rank = %d' % func_data_rank)
     
     # if n_comps not provided, set it to maximum possible
     if n_comps is None:
         if calc_rank == True:
             n_comps = func_data_rank
-            print(f' + Automatically setting n_comps = rank ==> n_comps = {n_comps}')
+            print(f' + [run_cpca]: Automatically setting n_comps = rank ==> n_comps = {n_comps}')
         else:
             n_comps = np.min(func_data.shape)
-            print(f' + Automatically setting n_comps = min(func_data.shape) ==> n_comps = {n_comps}')
+            print(f' + [run_cpca]: Automatically setting n_comps = min(func_data.shape) ==> n_comps = {n_comps}')
     
     # compute pca
-    pca_output = pca(func_data, n_comps, pca_type, verbose)
+    pca_output = pca(func_data, total_var_in_func_data, n_comps, pca_type, verbose, n_iter=8)
 
     # rotate pca weights, if specified
     if rotate is not None:
-        print(' + Applying rotation ...')
+        print(' + [run_cpca]: Applying rotation ...')
         pca_output = rotation(pca_output, func_data, rotate, verbose)
 
     # free memory
-    print(' + Freeing memory by deleting the func_data variable')
+    print(' + [run_cpca]: Freeing memory by deleting the func_data variable')
     del func_data
 
     # if cpca, and recon_data = True, create reconstructed data after removal of complex PC components
     # ================================================================================================
     if recon_data & (pca_type == 'complex') & (n_comps_to_remove is not None):
         if verbose:
-            print(f'performing data reconstruction after removal of {n_comps_to_remove} components')
+            print(f' + [run_cpca]: Performing data reconstruction after removal of {n_comps_to_remove} components')
         # Nulling the first n_comps_to_remove components
         pca_output['s_modified'] = pca_output['s'].copy()
         pca_output['s_modified'][:n_comps_to_remove] = 0
@@ -260,7 +285,7 @@ def run_cpca(input_files, n_comps, mask_fp, file_format, out_prefix,
         write_modified_scans(func_data_modified,mask,header,file_format,func_data_trs, out_removed_paths, verbose)
         write_modified_scans(func_data_allcomps,mask,header,file_format,func_data_trs, out_asis_paths, verbose)
         # free memory
-        print(' + Freeing memory by deleting the func_data_modified variable')
+        print(' + [run_cpca]: Freeing memory by deleting the func_data_modified variable')
         del func_data_modified
         del func_data_allcomps
     
@@ -268,7 +293,7 @@ def run_cpca(input_files, n_comps, mask_fp, file_format, out_prefix,
     # ========================================================================
     if recon & (pca_type == 'complex'):
         if verbose:
-            print('performing CPCA component time series reconstruction')
+            print(' + [run_cpca]: performing CPCA component time series reconstruction')
         if n_comps_to_recon > 10:
             warnings.warn(
               'the # of components estimated is large, CPCA reconstruction '
@@ -288,12 +313,11 @@ def run_cpca(input_files, n_comps, mask_fp, file_format, out_prefix,
     )
     # write out results
     if verbose:
-        print('writing out results')
+        print(' + [run_cpca]: writing out results')
     if save_pca_out:
-        print(' writing pca_output dictorionary to disk')
+        print(' +             writing pca_output dictorionary to disk')
         write_results(pca_output, pca_type, mask, file_format, 
                   header, rotate, out_prefix, n_comps_to_recon)
-
 
 if __name__ == '__main__':
     """Run complex or standard principal component analysis"""
@@ -412,6 +436,7 @@ if __name__ == '__main__':
     
 
     args_dict = vars(parser.parse_args())
+    os.environ["MKL_INTERFACE_LAYER"] = "ILP64" #CW added
     run_cpca(args_dict['input'], args_dict['n_comps'], args_dict['mask'],
             args_dict['file_format'], args_dict['output_prefix'], 
             args_dict['pca_type'], args_dict['rotate'], 
