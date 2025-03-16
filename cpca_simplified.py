@@ -77,16 +77,16 @@ def pca(input_data,total_var_in_func_data, n_comps, pca_type, verbose, n_iter=2)
     n_vertices = input_data.shape[1] 
     print(' + [pca] INFO: number of samples              = %d' % n_samples)
     print(' + [pca] INFO: number of vertices/voxels      = %d' % n_vertices)
-    print(' + [pca] INFO: Total variance in the data     = %.f' % total_var_in_func_data)
+    ## JAVIER REMOVED ON DEC/16/24 TO SIMPLIFY DURING TESTS ## print(' + [pca] INFO: Total variance in the data     = %.f' % total_var_in_func_data)
     # fbpca pca
     (U, s, Va) = fbpca.pca(input_data, k=n_comps, n_iter=n_iter)
     # calc explained variance
     # 1. Get eigs
     eigs = (s ** 2) / (n_samples-1)
     # 2. Compute Variance Explained from eigenvalues
-    explained_variance_ = 100*np.array([eig/total_var_in_func_data for eig in eigs])
-    total_var           = explained_variance_.sum()
-    print(' + [pca] INFO: Total variance explained in PCA = %s %%' % str(total_var))
+    ## JAVIER REMOVED ON DEC/16/24 TO SIMPLIFY DURING TESTS ## explained_variance_ = 100*np.array([eig/total_var_in_func_data for eig in eigs])
+    ## JAVIER REMOVED ON DEC/16/24 TO SIMPLIFY DURING TESTS ## total_var           = explained_variance_.sum()
+    ## JAVIER REMOVED ON DEC/16/24 TO SIMPLIFY DURING TESTS ## print(' + [pca] INFO: Total variance explained in PCA = %s %%' % str(total_var))
 
     # OLDER CODE THAT IS INNACURATE WHEN YOU HAVE VOXELS WITH FLAT TIMESERIES
     #    Assumptions:
@@ -110,12 +110,13 @@ def pca(input_data,total_var_in_func_data, n_comps, pca_type, verbose, n_iter=2)
                    's': s,
                    'Va': Va,
                    'loadings': loadings.T,
-                   'exp_var': explained_variance_,
+                   'exp_var': np.nan,
                    'eigs': eigs,
                    'pc_scores': pc_scores,
                    'n_samples': n_samples,
                    'n_positions': input_data.shape[1],
-                   'total_var': total_var}
+                   'total_var': np.nan} #total_var}
+                   #'exp_var': explained_variance_,
     return output_dict
 
 
@@ -228,18 +229,16 @@ def run_cpca(input_files, n_comps, mask_fp, file_format, out_prefix,
 
     # Estimate and write total variance in the input data (once concatenated and hilbert)
     #var_in_func_data = func_data.var(axis=0)
-    print(' + [run_cpca]: finished Hilbert Transform')
-    #var_in_func_data = tvar(func_data, axis=0, ddof=0) # CW added
-    var_in_func_data = np.nanvar(func_data, axis=0) # CW added
-    print(' + [run_cpca]: calculated variance')
-    total_var_in_func_data = var_in_func_data.sum()
-    print(' + [run_cpca]: summed variance')
-    total_var_in_func_data_df =  pd.DataFrame(var_in_func_data,columns=['Voxelwise Variance'])
-    total_var_in_func_data_df.index.name = 'voxel_ID'
+    ## JAVIER REMOVED ON DEC/16/24 TO SIMPLIFY DURING TESTS ## var_in_func_data = tvar(func_data, axis=0, ddof=0) # CW added
+    ## JAVIER REMOVED ON DEC/16/24 TO SIMPLIFY DURING TESTS ## print(' + [run_cpca]: calculated variance')
+    ## JAVIER REMOVED ON DEC/16/24 TO SIMPLIFY DURING TESTS ## total_var_in_func_data = var_in_func_data.sum()
+    ## JAVIER REMOVED ON DEC/16/24 TO SIMPLIFY DURING TESTS ## print(' + [run_cpca]: summed variance')
+    ## JAVIER REMOVED ON DEC/16/24 TO SIMPLIFY DURING TESTS ## total_var_in_func_data_df =  pd.DataFrame(var_in_func_data,columns=['Voxelwise Variance'])
+    ## JAVIER REMOVED ON DEC/16/24 TO SIMPLIFY DURING TESTS ## total_var_in_func_data_df.index.name = 'voxel_ID'
     
-    total_var_in_func_data_df_path = f'{out_prefix}_{pca_type}_total_var_in_func_data.txt'
-    total_var_in_func_data_df.to_csv(total_var_in_func_data_df_path)
-    print(" + [run_cpca]: Wrote variance of original data in [%s]" % total_var_in_func_data_df_path)
+    ## JAVIER REMOVED ON DEC/16/24 TO SIMPLIFY DURING TESTS ## total_var_in_func_data_df_path = f'{out_prefix}_{pca_type}_total_var_in_func_data.txt'
+    ## JAVIER REMOVED ON DEC/16/24 TO SIMPLIFY DURING TESTS ## total_var_in_func_data_df.to_csv(total_var_in_func_data_df_path)
+    ## JAVIER REMOVED ON DEC/16/24 TO SIMPLIFY DURING TESTS ## print(" + [run_cpca]: Wrote variance of original data in [%s]" % total_var_in_func_data_df_path)
 
     # if requested, calculate the rank of the data
     if calc_rank == True:
@@ -256,7 +255,8 @@ def run_cpca(input_files, n_comps, mask_fp, file_format, out_prefix,
             print(f' + [run_cpca]: Automatically setting n_comps = min(func_data.shape) ==> n_comps = {n_comps}')
     
     # compute pca
-    pca_output = pca(func_data, total_var_in_func_data, n_comps, pca_type, verbose, n_iter=8)
+    ## JAVIER REMOVED ON DEC/16/24 TO SIMPLIFY DURING TESTS ## pca_output = pca(func_data, total_var_in_func_data, n_comps, pca_type, verbose)
+    pca_output = pca(func_data, None, n_comps, pca_type, verbose)
 
     # rotate pca weights, if specified
     if rotate is not None:
